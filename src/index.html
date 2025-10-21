@@ -2,56 +2,128 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <!-- Early guard: wrap CustomElementRegistry.define to prevent bad/duplicate defines from third-party bundles -->
+    <!-- Early buffering stub: intercept customElements.define calls (accept bad calls), buffer them
+         and replay valid definitions to native registry after DOMContentLoaded. This prevents
+         native TypeErrors like "2 arguments required" and avoids crashes from duplicate defines. -->
     <script>
       (function(){
         try{
           if(typeof window === 'undefined') return;
-          var proto = (typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype) ? CustomElementRegistry.prototype : null;
-          if(proto && !proto.__safeDefineWrapped){
-            var orig = proto.define;
-            proto.define = function(name, constructor /*, options */){
+          var native = window.customElements;
+          if(!native) return;
+
+          // Don't wrap twice
+          if(native.__bufferingWrapped) return;
+
+          var buffer = [];
+
+          // Create a proxy object that safely accepts define/get
+          var safe = {
+            get: function(name){
+              try{ return native.get(name); }catch(e){ return undefined; }
+            },
+            define: function(name, constructor /*, options */){
+              // Buffer everything; only replay valid defines later
               try{
-                if(!constructor){
-                  console.warn('[guard] skip define without constructor for', name);
-                  return;
-                }
-                if(this.get && this.get(name)){
-                  console.warn('[guard] skip duplicate define for', name);
-                  return;
-                }
-                return orig.apply(this, arguments);
-              }catch(e){
-                console.warn('[guard] define wrapper caught', e);
-                return;
+                buffer.push([name, constructor, arguments[2]]);
+              }catch(e){ }
+            }
+          };
+
+          // Mark wrapper on safe
+          safe.__isSafeStub = true;
+
+          // Replace window.customElements with stub (most scripts will call define on it)
+          try{
+            window.customElements = safe;
+          }catch(e){
+            // If not writable, attempt to wrap prototype define instead (best-effort)
+            try{
+              if(typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype && !CustomElementRegistry.prototype.__bufferingWrapped){
+                var protoOrig = CustomElementRegistry.prototype.define;
+                CustomElementRegistry.prototype.define = function(name, constructor){
+                  try{ buffer.push([name, constructor, arguments[2]]); }catch(e){}
+                };
+                CustomElementRegistry.prototype.__bufferingWrapped = true;
               }
-            };
-            proto.__safeDefineWrapped = true;
+            }catch(e){}
           }
 
-          if(window.customElements && typeof window.customElements.define === 'function' && !window.customElements.__safeWrapped){
-            var orig2 = window.customElements.define.bind(window.customElements);
-            window.customElements.define = function(name, constructor /*, options */){
-              try{
-                if(!constructor){
-                  console.warn('[guard] skip window.define without constructor for', name);
-                  return;
+          // After DOMContentLoaded, restore native registry and replay buffered defines safely
+          window.addEventListener('DOMContentLoaded', function(){
+            try{
+              if(native && !native.__replayed){
+                // restore native reference if we replaced it
+                try{ window.customElements = native; }catch(e){}
+                // replay buffered defines: only apply those with a constructor and not duplicate
+                for(var i=0;i<buffer.length;i++){
+                  var rec = buffer[i];
+                  var n = rec[0];
+                  var c = rec[1];
+                  var o = rec[2];
+                  try{
+                    if(!c) continue;
+                    if(native.get && native.get(n)) continue;
+                    native.define(n,c,o);
+                  }catch(e){ /* ignore individual failures */ }
                 }
-                if(window.customElements.get && window.customElements.get(name)){
-                  console.warn('[guard] skip window.define duplicate for', name);
-                  return;
-                }
-                return orig2.apply(window.customElements, arguments);
-              }catch(e){
-                console.warn('[guard] window define wrapper caught', e);
-                return;
+                native.__replayed = true;
               }
-            };
-            window.customElements.__safeWrapped = true;
+            }catch(e){}
+          }, { once: true });
+
+          // mark original native so we don't rewrap
+          try{ native.__bufferingWrapped = true; }catch(e){}
+        }catch(e){ /* swallow */ }
+      })();
+    </script>
+    <!-- Diagnostic logger: logs dynamic script insertions and customElements.define calls with stack traces -->
+    <script>
+      (function(){
+        try{
+          function logStack(prefix){
+            try{
+              var e = new Error();
+              console.log(prefix, e.stack.split('\n').slice(2,7).join('\n'));
+            }catch(e){}
           }
-        }catch(e){
-          // swallow
-        }
+
+          var origAppend = Element.prototype.appendChild;
+          Element.prototype.appendChild = function(node){
+            try{
+              if(node && node.tagName === 'SCRIPT'){
+                var src = node.getAttribute && node.getAttribute('src') || node.src || '(inline)';
+                console.info('[diag] appendChild script:', src);
+                logStack('[diag] append stack:');
+              }
+            }catch(e){}
+            return origAppend.call(this,node);
+          };
+
+          var origInsert = Node.prototype.insertBefore;
+          Node.prototype.insertBefore = function(newNode, refNode){
+            try{
+              if(newNode && newNode.tagName === 'SCRIPT'){
+                var src = newNode.getAttribute && newNode.getAttribute('src') || newNode.src || '(inline)';
+                console.info('[diag] insertBefore script:', src);
+                logStack('[diag] insert stack:');
+              }
+            }catch(e){}
+            return origInsert.call(this,newNode, refNode);
+          };
+
+          // wrap define to log calls
+          if(typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype && CustomElementRegistry.prototype.define){
+            var origDefine = CustomElementRegistry.prototype.define;
+            CustomElementRegistry.prototype.define = function(name, constructor){
+              try{
+                console.info('[diag] define called for', name);
+                logStack('[diag] define stack:');
+              }catch(e){}
+              return origDefine.apply(this, arguments);
+            };
+          }
+        }catch(e){}
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
