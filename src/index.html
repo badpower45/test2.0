@@ -38,61 +38,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Block known conflicting external scripts before they load (prevents duplicate webcomponent definitions) -->
-    <script>
-      (function(){
-        try {
-          var blockedPatterns = ['overlay_bundle', 'webcomponents', 'webcomponents-ce', 'tinymce', 'cdn.tiny', 'mce-'];
-
-          function shouldBlockSrc(src){
-            if(!src) return false;
-            var s = src.toLowerCase();
-            return blockedPatterns.some(function(p){ return s.indexOf(p) !== -1 });
-          }
-
-          // Intercept dynamic appends (appendChild/insertBefore)
-          var origAppend = Element.prototype.appendChild;
-          Element.prototype.appendChild = function(node){
-            try{
-              if(node && node.tagName === 'SCRIPT'){
-                var src = node.getAttribute && node.getAttribute('src') || node.src;
-                if(shouldBlockSrc(src)){
-                  console.warn('Blocked script load:', src);
-                  return node; // don't append
-                }
-              }
-            } catch(e){ }
-            return origAppend.call(this, node);
-          };
-
-          var origInsert = Node.prototype.insertBefore;
-          Node.prototype.insertBefore = function(newNode, refNode){
-            try{
-              if(newNode && newNode.tagName === 'SCRIPT'){
-                var src = newNode.getAttribute && newNode.getAttribute('src') || newNode.src;
-                if(shouldBlockSrc(src)){
-                  console.warn('Blocked script insert:', src);
-                  return newNode; // don't insert
-                }
-              }
-            } catch(e){}
-            return origInsert.call(this, newNode, refNode);
-          };
-
-          // Also guard against document.write of script tags
-          var origWrite = document.write.bind(document);
-          document.write = function(str){
-            try{
-              if(typeof str === 'string' && blockedPatterns.some(function(p){ return str.toLowerCase().indexOf(p)!==-1 })){
-                console.warn('Blocked document.write of script containing blocked pattern');
-                return;
-              }
-            } catch(e){}
-            return origWrite(str);
-          };
-        } catch(e){}
-      })();
-    </script>
+    <!-- Removed aggressive script-blocker (was preventing app scripts/CSS from loading). -->
     <!-- Inline guard: prevent duplicate custom element definition errors (runs before modules) -->
     <script>
       (function(){
