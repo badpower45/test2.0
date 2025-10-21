@@ -43,23 +43,38 @@
     <script>
       (function(){
         try {
-          if (typeof window !== 'undefined' && window.customElements) {
-            var orig = window.customElements.define.bind(window.customElements);
-            window.customElements.define = function(){
-              try {
-                var name = arguments[0];
-                var constructor = arguments[1];
-                if (!constructor) {
-                  return;
-                }
-                if (window.customElements.get(name)) {
-                  return;
-                }
-                return orig.apply(window.customElements, arguments);
-              } catch (e) {
-                return;
+          // Wrap both the instance define and the prototype define to be defensive
+          if (typeof window !== 'undefined') {
+            try {
+              var registry = window.customElements || window.CustomElementRegistry;
+              // Wrap prototype define if exists
+              if (typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype && CustomElementRegistry.prototype.define) {
+                var protoOrig = CustomElementRegistry.prototype.define;
+                CustomElementRegistry.prototype.define = function(){
+                  try {
+                    var name = arguments[0];
+                    var constructor = arguments[1];
+                    if (!constructor) return;
+                    if (this.get && this.get(name)) return;
+                    return protoOrig.apply(this, arguments);
+                  } catch (e) { return; }
+                };
               }
-            };
+
+              // Also wrap the window.customElements.define if present
+              if (window.customElements && typeof window.customElements.define === 'function') {
+                var orig = window.customElements.define.bind(window.customElements);
+                window.customElements.define = function(){
+                  try {
+                    var name = arguments[0];
+                    var constructor = arguments[1];
+                    if (!constructor) return;
+                    if (window.customElements.get && window.customElements.get(name)) return;
+                    return orig.apply(window.customElements, arguments);
+                  } catch (e) { return; }
+                };
+              }
+            } catch (e) { /* ignore */ }
           }
         } catch (e) {
           // swallow any unexpected errors from the guard itself
