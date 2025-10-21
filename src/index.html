@@ -2,6 +2,58 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <!-- Early guard: wrap CustomElementRegistry.define to prevent bad/duplicate defines from third-party bundles -->
+    <script>
+      (function(){
+        try{
+          if(typeof window === 'undefined') return;
+          var proto = (typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype) ? CustomElementRegistry.prototype : null;
+          if(proto && !proto.__safeDefineWrapped){
+            var orig = proto.define;
+            proto.define = function(name, constructor /*, options */){
+              try{
+                if(!constructor){
+                  console.warn('[guard] skip define without constructor for', name);
+                  return;
+                }
+                if(this.get && this.get(name)){
+                  console.warn('[guard] skip duplicate define for', name);
+                  return;
+                }
+                return orig.apply(this, arguments);
+              }catch(e){
+                console.warn('[guard] define wrapper caught', e);
+                return;
+              }
+            };
+            proto.__safeDefineWrapped = true;
+          }
+
+          if(window.customElements && typeof window.customElements.define === 'function' && !window.customElements.__safeWrapped){
+            var orig2 = window.customElements.define.bind(window.customElements);
+            window.customElements.define = function(name, constructor /*, options */){
+              try{
+                if(!constructor){
+                  console.warn('[guard] skip window.define without constructor for', name);
+                  return;
+                }
+                if(window.customElements.get && window.customElements.get(name)){
+                  console.warn('[guard] skip window.define duplicate for', name);
+                  return;
+                }
+                return orig2.apply(window.customElements, arguments);
+              }catch(e){
+                console.warn('[guard] window define wrapper caught', e);
+                return;
+              }
+            };
+            window.customElements.__safeWrapped = true;
+          }
+        }catch(e){
+          // swallow
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
@@ -39,48 +91,7 @@
   <body>
     <div id="root"></div>
     <!-- Removed aggressive script-blocker (was preventing app scripts/CSS from loading). -->
-    <!-- Inline guard: prevent duplicate custom element definition errors (runs before modules) -->
-    <script>
-      (function(){
-        try {
-          // Wrap both the instance define and the prototype define to be defensive
-          if (typeof window !== 'undefined') {
-            try {
-              var registry = window.customElements || window.CustomElementRegistry;
-              // Wrap prototype define if exists
-              if (typeof CustomElementRegistry !== 'undefined' && CustomElementRegistry.prototype && CustomElementRegistry.prototype.define) {
-                var protoOrig = CustomElementRegistry.prototype.define;
-                CustomElementRegistry.prototype.define = function(){
-                  try {
-                    var name = arguments[0];
-                    var constructor = arguments[1];
-                    if (!constructor) return;
-                    if (this.get && this.get(name)) return;
-                    return protoOrig.apply(this, arguments);
-                  } catch (e) { return; }
-                };
-              }
-
-              // Also wrap the window.customElements.define if present
-              if (window.customElements && typeof window.customElements.define === 'function') {
-                var orig = window.customElements.define.bind(window.customElements);
-                window.customElements.define = function(){
-                  try {
-                    var name = arguments[0];
-                    var constructor = arguments[1];
-                    if (!constructor) return;
-                    if (window.customElements.get && window.customElements.get(name)) return;
-                    return orig.apply(window.customElements, arguments);
-                  } catch (e) { return; }
-                };
-              }
-            } catch (e) { /* ignore */ }
-          }
-        } catch (e) {
-          // swallow any unexpected errors from the guard itself
-        }
-      })();
-    </script>
+    <!-- (early guard moved to head) -->
     <script type="module" src="/main.tsx"></script>
   </body>
 </html>
